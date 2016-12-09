@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    {
+      "text":"Learn AngularJS",
+      "done": false
+    },
+    {
+      "text": "Build an app",
+      "done": false
+    }
+  ]
+}
