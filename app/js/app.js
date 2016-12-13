@@ -54,56 +54,81 @@ function TodoCtrl ($scope, $http) {
   }
 
   $scope.syncIn = function (data) {
-    // console.log('syncIn', data)
-    $scope.checkInternalDB(function (db) {
-      var tx = db.transaction('task', 'readwrite')
-      var store = tx.objectStore('task')
-      if (data instanceof Array) {
-        for (var i = 0; i < data.length; i++) {
-          let task = $scope.todos.filter(function (value) {
-            if (value.id === data[i].id) {
-              console.log('check[]', value, data[i])
-              if (value.lastUpdate < data[i].lastUpdate) {
-                return true
+    return new Promise(function (resolve, reject) {
+      $scope.checkInternalDB(function (db) {
+        var tx = db.transaction('task', 'readwrite')
+        var store = tx.objectStore('task')
+        if (data instanceof Array) {
+          // console.log('syncIn', data)
+          for (var i = 0; i < data.length; i++) {
+            // let task = $scope.todos.filter(function (value) {
+            //   if (value.id === data[i].id) {
+            //     // console.log('check[]', value, data[i])
+            //     if (value.lastUpdate > data[i].lastUpdate) {
+            //       return true
+            //     }
+            //     return false
+            //   } else {
+            //     return false
+            //   }
+            // })
+            $scope.getIDB(store, data[i]).then(function (db) {
+              console.log('getIDB1', db.param, db.base)
+              if (db.param.lastUpdate === db.base.lastUpdate) {
+                return
               }
-              return false
-            } else {
-              return false
-            }
+              if (db.param.lastUpdate > db.base.lastUpdate) {
+                console.log('must update indexedDB')
+
+                store.put({ content: db.param, ID: db.param.id })
+              } else {
+                console.log('must update api')
+
+                $scope.callAPI({
+                  method: 'PUT',
+                  data: { task: db.base },
+                  url: 'https://test.fumasa.org/api/tasks'
+                }).then(function (data) {
+                  console.log('callAPI(PUT)', data)
+                  $scope.syncIn(data.task)
+                }, function (response) {
+                  console.error('callAPI(PUT)', response)
+                  // $scope.syncIn(data)
+                })
+              }
+            }, function (task, event) {
+              // console.log('getIDB2', task, event)
+              // store.put({ content: task, ID: task.id })
+            })
+          }
+          resolve(data)
+          // $scope.todos = data
+        } else {
+          // let task = $scope.todos.filter(function (value) {
+          //   if (value.id === data.id) {
+          //     // console.log('check', value, data)
+          //     if (value.lastUpdate < data.lastUpdate) {
+          //       return true
+          //     }
+          //     return false
+          //   } else {
+          //     return false
+          //   }
+          // })
+          // console.log('syncIn one', data)
+          store.put({ content: data, ID: data.id })
+          $scope.$apply(function () {
+            $scope.setTodos(data)
           })
-          console.log('syncIn[]', task)
-          store.put({ content: data[i], ID: data[i].id })
+          // if (t === null) {
+          //   $scope.todos.push(data)
+          // }
         }
-        $scope.todos = data
-      } else {
-        let task = $scope.todos.filter(function (value) {
-          if (value.id === data.id) {
-            console.log('check', value, data)
-            if (value.lastUpdate < data.lastUpdate) {
-              return true
-            }
-            return false
-          } else {
-            return false
-          }
-        })
-        console.log('syncIn', task)
-        store.put({ content: data, ID: data.id })
-        var t = $scope.todos.filter(function (value) {
-          if (value.id === task.id) {
-            return true
-          } else {
-            return false
-          }
-        })
-        if (t === null) {
-          $scope.todos.push(data)
-        }
-      }
+      })
     })
   }
 
-  $scope.syncOut = function (tasksDB) {
+  $scope.syncOut = function (tasksDB = null) {
     return new Promise(function (resolve, reject) {
       $scope.checkInternalDB(function (db) {
         var tasks = []
@@ -117,17 +142,21 @@ function TodoCtrl ($scope, $http) {
             var cursor = event.target.result
             if (cursor) {
               var task = cursor.value
-              var t = tasksDB.filter(function (value) {
-                if (value.id === task.content.id) {
-                  return true
-                } else {
-                  return false
+              if (tasksDB !== null) {
+                var t = tasksDB.filter(function (value) {
+                  if (value.id === task.content.id) {
+                    return true
+                  } else {
+                    return false
+                  }
+                })
+                if (task.content.lastUpdate > t[0].lastUpdate) {
+                  tasks.push(task.content)
                 }
-              })
-              // console.log('syncOut', task.content, t[0])
-              if (task.content.lastUpdate > t[0].lastUpdate) {
-                tasks.push(task)
+              } else {
+                tasks.push(task.content)
               }
+
               cursor.continue()
             } else {
               resolve(tasks)
@@ -161,42 +190,81 @@ function TodoCtrl ($scope, $http) {
     })
   }
 
-  $scope.getTodos = function () {
-    var url = 'https://test.fumasa.org/api/tasks'
-    $scope.callAPI({
-      method: 'GET',
-      url: url
-    }).then(function (data) {
-      $scope.$apply(function () {
-        $scope.setTodos(data.tasks)
-        $scope.app.checkLoading()
-      })
-    }, function (response) {
-      if ('caches' in window) {
-        caches.match(url).then(function (response) {
-          if (response) {
-            response.json().then(function (data) {
-              $scope.$apply(function () {
-                $scope.setTodos(data.tasks)
-                $scope.app.checkLoading()
-              })
-            })
-          }
-        })
+  $scope.getIDB = function (store, task) {
+    return new Promise(function (resolve, reject) {
+      // console.log('getIDB', task)
+      var request = store.get(task.id)
+      request.onerror = function (event) {
+        reject(task, event)
       }
-      $scope.app.checkLoading()
+      request.onsuccess = function (event) {
+        if (request.result) {
+          // console.log('getIDB', event.target.result.content)
+          resolve({ param: task, base: event.target.result.content })
+        } else {
+          reject(task, event)
+        }
+      }
+    })
+  }
+
+  $scope.getTodos = function () {
+    return new Promise(function (resolve, reject) {
+      var url = 'https://test.fumasa.org/api/tasks'
+      $scope.callAPI({
+        method: 'GET',
+        url: url
+      }).then(function (data) {
+        $scope.syncIn(data.tasks).then(function (tasks) {
+          $scope.$apply(function () {
+            $scope.setTodos(tasks)
+            $scope.app.checkLoading()
+            resolve(tasks)
+          })
+        })
+      }, function (response) {
+        // if ('caches' in window) {
+        //   caches.match(url).then(function (response) {
+        //     if (response) {
+        //       response.json().then(function (data) {
+        //         $scope.$apply(function () {
+        //           $scope.setTodos(data.tasks)
+        //           $scope.app.checkLoading()
+        //         })
+        //       })
+        //     }
+        //   })
+        // }
+        $scope.syncOut().then(function (tasks) {
+          $scope.$apply(function () {
+            $scope.setTodos(tasks)
+            $scope.app.checkLoading()
+            resolve(tasks)
+          })
+        })
+      })
     })
   }
 
   $scope.setTodos = function (data) {
-    // console.log('setTodos', data, $scope.todos)
-    $scope.syncIn(data)
+    console.log('setTodos', data, $scope.todos)
+    if (data instanceof Array) {
+      $scope.todos = data
+    } else {
+      $scope.todos = $scope.todos.map(function (value) {
+        if (value.id === data.id) {
+          return data
+        }
+        return value
+      })
+    }
+    console.log('setTodos out', $scope.todos)
   }
 
   $scope.getTotalTodos = function () {
-    return $scope.todos.filter(function (task) {
+    return $scope.todos ? $scope.todos.filter(function (task) {
       return (!task.hide)
-    }).length || 0
+    }).length : 0
   }
 
   $scope.addTodo = function () {
@@ -254,20 +322,21 @@ function TodoCtrl ($scope, $http) {
 
   $scope.changeDone = function ($event, task) {
     // console.log('changeDone value', $event.currentTarget.checked)
+    console.log('changeDone', task)
     task.done = $event.currentTarget.checked
     task.lastUpdate = new Date().toISOString()
-    $scope.callAPI({
-      method: 'PUT',
-      data: { task: task },
-      url: 'https://test.fumasa.org/api/tasks'
-    }).then(function (data) {
-      // console.log('changeDone', data.task)
-      task = data.task
-      $scope.syncIn(task)
-    }, function (response) {
+    // $scope.callAPI({
+    //   method: 'PUT',
+    //   data: { task: task },
+    //   url: 'https://test.fumasa.org/api/tasks'
+    // }).then(function (data) {
+    //   // console.log('changeDone', data.task)
+    //   task = data.task
+    //   $scope.syncIn(task)
+    // }, function (response) {
       // console.error('changeDone', response)
-      $scope.syncIn(task)
-    })
+    $scope.syncIn(task)
+    // })
   }
 
   $scope.callAPI = function (options = { method: 'GET', url: 'https://test.fumasa.org/api' }) {
@@ -286,44 +355,41 @@ function TodoCtrl ($scope, $http) {
   }
 
   $scope.sync = function () {
-    $scope.callAPI({
-      method: 'GET',
-      url: 'https://test.fumasa.org/api/tasks'
-    }).then(function (data) {
-      console.log('Checking data to sync...')
-      $scope.syncOut(data.tasks).then(function (tasks) {
+    $scope.getTodos().then(function (data) {
+      console.log('Checking data to sync...', data)
+      $scope.syncOut(data).then(function (tasks) {
         if (tasks.length > 0) {
-          // console.log('Data to sync', tasks)
+          console.log('Data to sync', tasks)
           for (var i = 0; i < tasks.length; i++) {
             var task = tasks[i]
             console.log('sync', task)
-            if (task.id < 0) {
-              $scope.callAPI({
-                method: 'POST',
-                data: { task: task },
-                url: 'https://test.fumasa.org/api/tasks'
-              }).then(function (resp) {
-                console.log('Task removed from indexedDB', task, resp)
-                $scope.removeIDB(task).then(function (t) {
-                  task = t
-                  console.log('Task add to indexedDB', task, t)
-                  $scope.syncIn(task)
-                })
-              })
-            } else {
-              $scope.callAPI({
-                method: 'PUT',
-                data: { task: task },
-                url: 'https://test.fumasa.org/api/tasks'
-              }).then(function (resp) {
-                console.log('Task removed from indexedDB', task, resp)
-                $scope.removeIDB(task).then(function (t) {
-                  task = t
-                  console.log('Task update to indexedDB', task, t)
-                  $scope.syncIn(task)
-                })
-              })
-            }
+            // if (task.id < 0) {
+            //   $scope.callAPI({
+            //     method: 'POST',
+            //     data: { task: task },
+            //     url: 'https://test.fumasa.org/api/tasks'
+            //   }).then(function (resp) {
+            //     // console.log('Task removed from indexedDB', task, resp)
+            //     $scope.removeIDB(task).then(function (t) {
+            //       // task = resp.task
+            //       console.log('Task add to indexedDB', resp.task)
+            //       $scope.syncIn(resp.task)
+            //     })
+            //   })
+            // } else {
+            //   $scope.callAPI({
+            //     method: 'PUT',
+            //     data: { task: task },
+            //     url: 'https://test.fumasa.org/api/tasks'
+            //   }).then(function (resp) {
+            //     // console.log('Task removed from indexedDB', task, resp)
+            //     $scope.removeIDB(task).then(function (t) {
+            //       // task = resp.task
+            //       console.log('Task update to indexedDB', resp.task)
+            //       $scope.syncIn(resp.task)
+            //     })
+            //   })
+            // }
           }
         } else {
           console.log('No data to sync')
@@ -335,7 +401,7 @@ function TodoCtrl ($scope, $http) {
   }
 
   document.getElementById('butRefresh').click()
-  setInterval($scope.sync, 5000)
+  // setInterval($scope.sync, 5000)
   // $scope.callAPI().then(function () {
   // $scope.getTodos()
   // })
