@@ -1,5 +1,5 @@
-var cacheName = 'todoPWA-v2'
-var dataCacheName = 'todoData-v1'
+var cacheName = 'todoPWA-v3'
+var dataCacheName = 'todoData-v2'
 
 var filesToCache = [
   '/',

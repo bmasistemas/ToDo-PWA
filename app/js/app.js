@@ -60,15 +60,50 @@ function TodoCtrl ($scope, $http) {
       var store = tx.objectStore('task')
       if (data instanceof Array) {
         for (var i = 0; i < data.length; i++) {
+          let task = $scope.todos.filter(function (value) {
+            if (value.id === data[i].id) {
+              console.log('check[]', value, data[i])
+              if (value.lastUpdate < data[i].lastUpdate) {
+                return true
+              }
+              return false
+            } else {
+              return false
+            }
+          })
+          console.log('syncIn[]', task)
           store.put({ content: data[i], ID: data[i].id })
         }
+        $scope.todos = data
       } else {
+        let task = $scope.todos.filter(function (value) {
+          if (value.id === data.id) {
+            console.log('check', value, data)
+            if (value.lastUpdate < data.lastUpdate) {
+              return true
+            }
+            return false
+          } else {
+            return false
+          }
+        })
+        console.log('syncIn', task)
         store.put({ content: data, ID: data.id })
+        var t = $scope.todos.filter(function (value) {
+          if (value.id === task.id) {
+            return true
+          } else {
+            return false
+          }
+        })
+        if (t === null) {
+          $scope.todos.push(data)
+        }
       }
     })
   }
 
-  $scope.syncOut = function () {
+  $scope.syncOut = function (tasksDB) {
     return new Promise(function (resolve, reject) {
       $scope.checkInternalDB(function (db) {
         var tasks = []
@@ -82,7 +117,15 @@ function TodoCtrl ($scope, $http) {
             var cursor = event.target.result
             if (cursor) {
               var task = cursor.value
-              if ($scope.checkTaskUnsynced(task)) {
+              var t = tasksDB.filter(function (value) {
+                if (value.id === task.content.id) {
+                  return true
+                } else {
+                  return false
+                }
+              })
+              // console.log('syncOut', task.content, t[0])
+              if (task.content.lastUpdate > t[0].lastUpdate) {
                 tasks.push(task)
               }
               cursor.continue()
@@ -105,7 +148,7 @@ function TodoCtrl ($scope, $http) {
         var tx = db.transaction('task', 'readwrite')
         var store = tx.objectStore('task')
         console.log('removeIDB', task)
-        var request = store.delete(task.id)
+        var request = store.delete(task.ID)
 
         request.onsuccess = function (event) {
           resolve(task)
@@ -116,23 +159,6 @@ function TodoCtrl ($scope, $http) {
         }
       })
     })
-  }
-
-  $scope.checkTaskUnsynced = function (task) {
-    if (task.id < 0) {
-      return true
-    }
-
-    var oldTask = $scope.todos.filter(function (value) {
-      if (value.id === task.id) {
-        if (value.lastUpdate < task.lastUpdate) {
-          return true
-        }
-        return false
-      }
-    })
-
-    return oldTask !== null
   }
 
   $scope.getTodos = function () {
@@ -163,9 +189,8 @@ function TodoCtrl ($scope, $http) {
   }
 
   $scope.setTodos = function (data) {
-    $scope.todos = data
     // console.log('setTodos', data, $scope.todos)
-    $scope.syncIn($scope.todos)
+    $scope.syncIn(data)
   }
 
   $scope.getTotalTodos = function () {
@@ -212,7 +237,7 @@ function TodoCtrl ($scope, $http) {
       var task = $scope.todos[i]
       if (task.done && !task.hide) {
         task.hide = true
-        task.lastUpdate = new Date()
+        task.lastUpdate = new Date().toISOString()
         $scope.callAPI({
           method: 'PUT',
           data: { task: task },
@@ -230,7 +255,7 @@ function TodoCtrl ($scope, $http) {
   $scope.changeDone = function ($event, task) {
     // console.log('changeDone value', $event.currentTarget.checked)
     task.done = $event.currentTarget.checked
-    task.lastUpdate = new Date()
+    task.lastUpdate = new Date().toISOString()
     $scope.callAPI({
       method: 'PUT',
       data: { task: task },
@@ -261,11 +286,14 @@ function TodoCtrl ($scope, $http) {
   }
 
   $scope.sync = function () {
-    $scope.callAPI().then(function (data) {
+    $scope.callAPI({
+      method: 'GET',
+      url: 'https://test.fumasa.org/api/tasks'
+    }).then(function (data) {
       console.log('Checking data to sync...')
-      $scope.syncOut().then(function (tasks) {
+      $scope.syncOut(data.tasks).then(function (tasks) {
         if (tasks.length > 0) {
-          console.log('Data to sync', tasks)
+          // console.log('Data to sync', tasks)
           for (var i = 0; i < tasks.length; i++) {
             var task = tasks[i]
             console.log('sync', task)
@@ -275,10 +303,10 @@ function TodoCtrl ($scope, $http) {
                 data: { task: task },
                 url: 'https://test.fumasa.org/api/tasks'
               }).then(function (resp) {
-                console.log('Task removed from indexedDB', task)
+                console.log('Task removed from indexedDB', task, resp)
                 $scope.removeIDB(task).then(function (t) {
-                  task = resp.data.task
-                  console.log('Task add to indexedDB', task)
+                  task = t
+                  console.log('Task add to indexedDB', task, t)
                   $scope.syncIn(task)
                 })
               })
@@ -288,10 +316,10 @@ function TodoCtrl ($scope, $http) {
                 data: { task: task },
                 url: 'https://test.fumasa.org/api/tasks'
               }).then(function (resp) {
-                console.log('Task removed from indexedDB', task)
+                console.log('Task removed from indexedDB', task, resp)
                 $scope.removeIDB(task).then(function (t) {
-                  task = resp.data.task
-                  console.log('Task add to indexedDB', task)
+                  task = t
+                  console.log('Task update to indexedDB', task, t)
                   $scope.syncIn(task)
                 })
               })
@@ -307,7 +335,7 @@ function TodoCtrl ($scope, $http) {
   }
 
   document.getElementById('butRefresh').click()
-  // setInterval($scope.sync, 5000)
+  setInterval($scope.sync, 5000)
   // $scope.callAPI().then(function () {
   // $scope.getTodos()
   // })
