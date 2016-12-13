@@ -37,11 +37,11 @@ self.addEventListener('activate', function (event) {
 
 self.addEventListener('fetch', function (event) {
   // console.log('[Service Worker] Fetch', event.request.method, event.request.url)
-  var dataUrl = 'https://localhost:8443/api'
-  if (event.request.method == 'GET' && event.request.url.indexOf(dataUrl) > -1) {
+  var dataUrl = 'https://test.fumasa.org/api'
+  if (event.request.method === 'GET' && event.request.url.indexOf(dataUrl) > -1) {
     event.respondWith(
       caches.open(dataCacheName).then(function (cache) {
-        return fetch(event.request).then(function (response){
+        return fetch(event.request).then(function (response) {
           cache.put(event.request.url, response.clone())
           // console.log('data cached: ' + event.request.url)
           return response
