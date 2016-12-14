@@ -70,7 +70,7 @@ router.get('/', function (req, res) {
 router.route('/tasks')
 .post(function (req, res) {
   var task = req.body.task
-  task.lastUpdate = new Date()
+  // task.lastUpdate = new Date()
   Tasks.create(task).then(function (data) {
     // console.log('post', { task: data })
     res.json({ alive: true, task: data.dataValues })
@@ -83,7 +83,7 @@ router.route('/tasks')
 })
 .put(function (req, res) {
   var task = req.body.task
-  task.lastUpdate = new Date()
+  // task.lastUpdate = new Date()
   Tasks.update(task, { where: { id: task.id } }).then(function (data) {
     // console.log('put', { task: task })
     res.json({ alive: true, task: task })
